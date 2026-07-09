@@ -8,6 +8,29 @@ The project includes a Jupyter notebook for the full modeling workflow and a Str
 
 This project compares different machine learning and deep learning approaches for financial forecasting. The goal is not to create a trading tool, but to evaluate how different model types perform on the same stock prediction task.
 
+## Learning Objectives
+
+This project was designed as an educational experience to explore the end-to-end workflow of a machine learning project in finance. It provided practice with financial data collection, exploratory data analysis, feature engineering, model training, performance evaluation, and interactive app deployment.
+
+The project also served as an opportunity to learn about machine learning and deep learning approaches such as LSTM networks, gradient-boosted trees, and N-BEATS, as well as the Python libraries commonly used to support these workflows.
+
+## Data Collection
+
+Financial data is collected using `yfinance`. The project retrieves historical daily stock data based on the selected ticker and date range, including price and volume information. Benchmark market data, such as SPY and QQQ returns, is also used as part of the feature set for selected models.
+
+The Streamlit app also uses `yfinance` to display basic company profile information for the selected ticker.
+
+## Notebook Structure
+
+The Jupyter notebook walks through the full project workflow, including:
+
+- Importing required libraries
+- Loading financial data
+- Performing exploratory data analysis across selected market sectors
+- Setting up the train/test split
+- Building and evaluating the LSTM, XGBoost, and N-BEATS
+- Comparing model performance using shared metrics and visualizations
+
 ## Models
 
 - **LSTM**: Multivariate sequence model using a 30-trading-day lookback window.
@@ -30,7 +53,7 @@ The Streamlit app allows users to select a ticker and date range, view company i
 Run locally with:
 
 ```bash
-python -m streamlit run streamlit_stock_prediction.py
+streamlit run streamlit_stock_prediction.py
 ```
 
 ## Repository Structure
@@ -56,4 +79,4 @@ pip install -r requirements.txt
 
 ## Limitations
 
-This project is for educational and portfolio purposes only. Stock prediction is highly uncertain, and results depend on the selected ticker, date range, model settings, train/test split, and market conditions. This project is not financial advice or a trading recommendation tool.
+This project is for educational and portfolio purposes only. Stock prediction is highly uncertain, and results depend on the selected ticker, date range, model settings, train/test split, and market conditions. Data from `yfinance` may be delayed, revised, incomplete, or unavailable for some symbols. This project is not financial advice or a trading recommendation tool.
