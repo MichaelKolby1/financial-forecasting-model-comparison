@@ -1,0 +1,21 @@
+# Streamlit app
+streamlit==1.45.1
+
+# Data handling and finance data
+numpy
+pandas
+yfinance
+
+# Visualization
+plotly
+matplotlib
+mplfinance
+
+# Machine learning and preprocessing
+scikit-learn
+xgboost
+
+# Deep learning models
+tensorflow
+torch
+nbeats-pytorch
