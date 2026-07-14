@@ -208,7 +208,7 @@ def validate_inputs(stock_df: pd.DataFrame, start_year: int, end_year: int) -> N
     """
     Addresses and raises possible errors for user inputs.
     """
-    year_span = end_year - start_year
+    year_span = end_year - start_year + 1
 
     if end_year <= start_year:
         raise ValueError("End year must be greater than start year.")
