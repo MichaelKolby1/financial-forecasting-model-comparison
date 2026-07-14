@@ -450,7 +450,8 @@ def run_xgboost(stock_df: pd.DataFrame, full_data: pd.DataFrame, training_set: i
         reg_lambda=2.0,
         objective="reg:squarederror",
         random_state=RANDOM_SEED,
-        n_jobs=-1,
+        n_jobs=1
+        tree_method="hist",
         verbosity=0,
     )
 
