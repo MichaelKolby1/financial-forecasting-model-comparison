@@ -7,7 +7,7 @@ Models included:
 3. N-BEATS: univariate sequence model using historical closing prices only.
 
 Run locally:
-    python -m streamlit run streamlit_stock_prediction.pys
+    python -m streamlit run streamlit_stock_prediction.py
 """
 
 from datetime import datetime
