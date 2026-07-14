@@ -1,5 +1,7 @@
 # Financial Forecasting Model Comparison
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://financial-forecasting-model-comparison.streamlit.app/)
+
 An educational project comparing three models for daily stock prediction: **LSTM**, **XGBoost**, and **N-BEATS**.
 
 The project includes a Jupyter notebook for the full modeling workflow and a Streamlit app for an interactive demo.
