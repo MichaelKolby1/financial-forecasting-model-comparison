@@ -212,7 +212,7 @@ def validate_inputs(stock_df: pd.DataFrame, start_year: int, end_year: int) -> N
 
     if end_year <= start_year:
         raise ValueError("End year must be greater than start year.")
-    if year_span < 2:
+    if year_span < 3:
         raise ValueError("Please select at least 3 years of data for reliable model training.")
     if year_span > 10:
         raise ValueError("Please select no more than 10 calendar years of data to keep training time reasonable. Both the start and end years are included.")
