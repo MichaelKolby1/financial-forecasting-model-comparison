@@ -215,7 +215,7 @@ def validate_inputs(stock_df: pd.DataFrame, start_year: int, end_year: int) -> N
     if year_span < 2:
         raise ValueError("Please select at least 3 years of data for reliable model training.")
     if year_span > 10:
-        raise ValueError("Please select no more than 10 years of data to keep training time reasonable.")
+        raise ValueError("Please select no more than 10 calendar years of data to keep training time reasonable. Both the start and end years are included.")
     if stock_df.empty:
         raise ValueError("No data was returned for this ticker. Please check the ticker symbol.")
     if len(stock_df) < LOOKBACK + 100:
