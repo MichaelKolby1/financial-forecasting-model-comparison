@@ -9,6 +9,6 @@ scikit-learn==1.6.1
 xgboost==3.3.0
 tensorflow==2.21.0
 torch==2.12.0+cpu
-nbeats-pytorch==1.8.0
+nbeats-pytorch==1.6.0
 matplotlib==3.10.0
 mplfinance==0.12.10b0
