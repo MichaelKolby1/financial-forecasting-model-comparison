@@ -71,12 +71,16 @@ financial-forecasting-model-comparison/
 
 ## Installation
 
-Clone the repository and install the required packages:
+This project was developed and tested using Python 3.13. The package versions
+listed in `requirements.txt` are the versions used to support the deployed
+Streamlit demo and are recommended for consistent code execution.
+
+Clone the repository and install the dependencies:
 
 ```bash
 git clone https://github.com/MichaelKolby1/financial-forecasting-model-comparison.git
 cd financial-forecasting-model-comparison
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ## Limitations
