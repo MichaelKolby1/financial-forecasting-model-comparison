@@ -7,7 +7,7 @@ Models included:
 3. N-BEATS: univariate sequence model using historical closing prices only.
 
 Run locally:
-    python -m streamlit run streamlit_stock_prediction.py
+    python -m streamlit run streamlit_stock_prediction.pys
 """
 
 from datetime import datetime
@@ -103,7 +103,7 @@ def compute_metrics(actual: np.ndarray, predicted: np.ndarray, current_close: np
         "Directional Accuracy%": directional_accuracy,
     }
 
-def make_prediction_frame(model_name: str, dates: np.ndarray, actual: np.ndarray, predicted: np.ndarray, current_close: np.ndarray,) -> pd.DataFrame:
+def make_prediction_frame(model_name: str, dates: np.ndarray, actual: np.ndarray, predicted: np.ndarray) -> pd.DataFrame:
     """
     Store results for each model to cleanly compare in demo.
     """
@@ -113,7 +113,6 @@ def make_prediction_frame(model_name: str, dates: np.ndarray, actual: np.ndarray
             "Model": model_name,
             "Actual": np.asarray(actual, dtype=float).flatten(),
             "Predicted": np.asarray(predicted, dtype=float).flatten(),
-            "Current_Close": np.asarray(current_close, dtype=float).flatten(),
         }
     )
 
@@ -335,7 +334,7 @@ def run_lstm(stock_df: pd.DataFrame, full_data: pd.DataFrame, training_set: int,
     actual = y_test.flatten()
     current_close = stock_df["Close"].values[target_indices - 1]
 
-    pred_df = make_prediction_frame("LSTM", test_dates, actual, predicted, current_close)
+    pred_df = make_prediction_frame("LSTM", test_dates, actual, predicted)
     metrics = compute_metrics(actual, predicted, current_close)
     return pred_df, metrics, feature_cols
 
@@ -462,7 +461,7 @@ def run_xgboost(stock_df: pd.DataFrame, full_data: pd.DataFrame, training_set: i
     actual = test_df["Target_Close"].values
     dates = test_df["Target_Date"].values
 
-    pred_df = make_prediction_frame("XGBoost", dates, actual, predicted, current_close)
+    pred_df = make_prediction_frame("XGBoost", dates, actual, predicted)
     metrics = compute_metrics(actual, predicted, current_close)
 
     importance_df = pd.DataFrame(
@@ -550,7 +549,7 @@ def run_nbeats(stock_df: pd.DataFrame, training_set: int, epochs: int) -> Tuple[
     current_close = close_vals[training_set - 1 : len(close_vals) - 1]
     dates = stock_df["Date"].values[training_set:]
 
-    pred_df = make_prediction_frame("N-BEATS", dates, actual, predicted, current_close)
+    pred_df = make_prediction_frame("N-BEATS", dates, actual, predicted)
     metrics = compute_metrics(actual, predicted, current_close)
     return pred_df, metrics
 
@@ -640,7 +639,7 @@ def render_project_explanation():
         unsafe_allow_html=True
     )
 
-def render_company_profile(profile):
+def render_company_profile(profile: Dict[str, str]):
     st.subheader(f"{profile['company_name']} ({profile['ticker']})")
 
     details = []
