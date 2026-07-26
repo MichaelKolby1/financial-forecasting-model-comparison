@@ -666,168 +666,152 @@ def render_company_profile(profile: Dict[str, str]):
         with link_cols[2]:
             st.link_button("Company Website", profile["website"])
 
-def main():
-    """
-    Design the UI to support user selection of a ticker and time frame for which the 3 models are run and to evaluate and compare model performances.
-    """
-    st.set_page_config(page_title="Financial Forecasting Model Comparison", layout="wide")
+def set_active_view(view_name: str) -> None:
+    """Update the visible app section without rerunning the models."""
+    st.session_state["active_view"] = view_name
+    st.session_state["scroll_to_top"] = True
 
-    # --------------------------------------
-    # Home Page Display
-    # --------------------------------------
-    st.title("Financial Forecasting Model Comparison")
-    st.caption("Interactive demo comparing machine learning and deep learning models (LSTM, XGBoost, and N-BEATS) for daily stock prediction.")
+def scroll_to_top_if_requested() -> None:
+    """Scroll the browser to the top after app navigation."""
+    if st.session_state.get("scroll_to_top", False):
+        st.html(
+            """
+            <script>
+                window.parent.scrollTo({
+                    top: 0,
+                    behavior: "instant"
+                });
+            </script>
+            """,
+            unsafe_allow_javascript=True,
+        )
+        st.session_state["scroll_to_top"] = False
 
-    st.markdown("""<style>
-        details summary p {font-size: 1.2rem !important;}
-        </style>""",
-        unsafe_allow_html=True)
+def start_new_model_run():
+    st.session_state["is_running"] = True
+    st.session_state["start_training"] = False
+    st.session_state["model_results"] = None
+    st.session_state["active_view"] = "Model Setup"
 
-    with st.expander("**Project Overview**", expanded=True):
-        render_project_explanation()
+def build_comparison_table(metrics_df: pd.DataFrame) -> pd.DataFrame:
+    """Add metric-specific ranks and a combined error rank to the model metrics."""
+    comparison = metrics_df.copy()
+    error_metrics = ["RMSE", "MAE", "MAPE%"]
 
-    current_year = datetime.now().year
+    for metric in error_metrics:
+        comparison[f"{metric} Rank"] = comparison[metric].rank(ascending=True, method="min")
 
-    st.sidebar.header("Controls")
-    ticker_choice = st.sidebar.selectbox("Common Tickers", POPULAR_TICKERS, index=POPULAR_TICKERS.index("NVDA"))
-    custom_ticker = st.sidebar.text_input("Or enter a custom ticker", value="")
-    ticker = normalize_ticker(custom_ticker) if custom_ticker.strip() else ticker_choice
+    comparison["Directional Accuracy Rank"] = comparison["Directional Accuracy%"].rank(ascending=False, method="min")
+    comparison["Average Error Rank"] = comparison[[f"{metric} Rank" for metric in error_metrics] ].mean(axis=1)
 
-    start_year = st.sidebar.number_input("Start year", min_value=current_year - 26, max_value=current_year - 3, value=current_year - 6, step=1, help="Note: Use at least 3 years and no more than 10 years of data after 2000.")
-    end_year = st.sidebar.number_input("End year", max_value=current_year, value=current_year-1, step=1, help="Note: End year is treated as inclusive. If it is the current year, data is downloaded through the latest available trading day.")
+    return comparison.sort_values(["Average Error Rank", "Directional Accuracy Rank"] )
 
-    st.sidebar.markdown("---")
-    st.sidebar.write(f"**Look-back Window:** {LOOKBACK} trading days")
-    st.sidebar.write(f"**Train/test Split:** {int(TRAIN_FRACTION * 100)}% / {int((1 - TRAIN_FRACTION) * 100)}%")
+def render_results_analysis(results: Dict) -> None:
+    """Render the completed model comparison and interpretation."""
+    ticker = results["ticker"]
+    predictions = results["predictions"]
+    metrics_df = results["metrics_df"]
+    comparison_df = build_comparison_table(metrics_df)
 
-    run_button = st.sidebar.button("Run model comparison", type="primary")
+    st.title("Results & Model Analysis")
+    st.caption(
+        f"Completed comparison for {ticker}, using data from "
+        f"{results['start_year']} through {results['end_year']}."
+    )
 
-    if not run_button:
-        st.info("Choose a ticker and date range in the sidebar, then click **Run model comparison**.")
-        return
+    best_error_model = comparison_df["Average Error Rank"].idxmin()
+    best_direction_model = metrics_df["Directional Accuracy%"].idxmax()
+    lowest_mape_model = metrics_df["MAPE%"].idxmin()
 
-    st.divider()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Best Overall Error Rank", best_error_model)
+    c2.metric("Lowest Percentage Error", lowest_mape_model)
+    c3.metric("Best Directional Accuracy", best_direction_model)
 
-    # --------------------------------------
-    # Data Download & Ticker Information
-    # --------------------------------------
-    try:
-        with st.spinner("Downloading market data..."):
-            full_data = download_market_data(ticker, int(start_year), int(end_year))
-            stock_df = get_stock_frame(full_data, ticker)
-            validate_inputs(stock_df, int(start_year), int(end_year))
-            company_profile = get_company_profile(ticker)
-            render_company_profile(company_profile)
-    except Exception as exc:
-        st.error(str(exc))
-        return
-     
-    st.markdown("---")
-    training_set = int(np.ceil(len(stock_df) * TRAIN_FRACTION))
+    st.info(
+        f"**Overall interpretation:** {best_error_model} produced the strongest combined "
+        "error performance across RMSE, MAE, and MAPE for this ticker and test period. "
+        f"{best_direction_model} most often correctly predicted the next-day price movement. "
+        "These can be different models because predicting the size of a price move and "
+        "predicting its direction are separate tasks."
+    )
 
-    st.header("Training Overview", divider = "gray")  
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Ticker", ticker)
-    c2.metric("Rows", f"{len(stock_df):,}")
-    c3.metric("Training Rows", f"{training_set:,}")
-    c4.metric("Test Rows", f"{len(stock_df) - training_set:,}")
+    st.plotly_chart(
+        plot_test_period_predictions(predictions, ticker),
+        use_container_width=True,
+    )
+    st.caption("The chart compares each model's test-period predictions with the actual closing price.")
 
-    st.plotly_chart(plot_candlestick_with_volume(stock_df, ticker), use_container_width=True)
+    st.subheader("Metric Comparison")
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.plotly_chart(plot_metric_bars(metrics_df, "RMSE"), use_container_width=True)
+    with m2:
+        st.plotly_chart(plot_metric_bars(metrics_df, "MAE"), use_container_width=True)
+    with m3:
+        st.plotly_chart(plot_metric_bars(metrics_df, "MAPE%"), use_container_width=True)
+    with m4:
+        st.plotly_chart(
+            plot_metric_bars(metrics_df, "Directional Accuracy%"),
+            use_container_width=True,
+        )
 
-    with st.expander("Downloaded data preview"):
-        st.dataframe(stock_df.tail(10), hide_index = True, use_container_width=True)
+    st.dataframe(
+        comparison_df.round(4),
+        use_container_width=True,
+    )
 
-    prediction_frames = []
-    metrics_records = {}
-    xgb_importance_df = pd.DataFrame()
-    lstm_feature_cols = []
+    st.subheader("Model Interpretations")
+    for model_name in metrics_df.index:
+        row = metrics_df.loc[model_name]
+        rank = comparison_df.loc[model_name, "Average Error Rank"]
+        st.markdown(
+            f"**{model_name}:** RMSE was `${row['RMSE']:.2f}`, MAE was `${row['MAE']:.2f}`, "
+            f"MAPE was `{row['MAPE%']:.2f}%`, and directional accuracy was "
+            f"`{row['Directional Accuracy%']:.1f}%`. Its average rank across the three "
+            f"error metrics was `{rank:.2f}`; lower average rank indicates stronger overall "
+            "error performance relative to the other completed models."
+        )
 
-    st.divider()
-    st.header("Model Status")
-    for model_name in MODEL_OPTIONS:
-        try:
-            with st.spinner(f"Training and evaluating {model_name}..."):
-                if model_name == "LSTM":
-                    pred_df, metrics, lstm_feature_cols = run_lstm(stock_df, full_data, training_set, 30) # epochs set to 30 by default 
-                elif model_name == "XGBoost":
-                    pred_df, metrics, xgb_importance_df = run_xgboost(stock_df, full_data, training_set)
-                elif model_name == "N-BEATS":
-                    pred_df, metrics = run_nbeats(stock_df, training_set, 50) # epochs set to 50 by default 
-                else:
-                    continue
-            prediction_frames.append(pred_df)
-            metrics_records[model_name] = metrics
-            st.success(f"{model_name} complete")
-        except Exception as exc:
-            st.warning(f"{model_name} could not run: {exc}")
-
-    if not prediction_frames:
-        st.error("No model results were produced. Check package installation and input settings.")
-        return
-
-    predictions = pd.concat(prediction_frames, ignore_index=True)
-    metrics_df = pd.DataFrame(metrics_records).T
-
-    # --------------------------------------
-    # Model Results & Analysis
-    # --------------------------------------
-    results_tab, details_tab = st.tabs(["Primary Results", "Model Details & Prediction Table"])
-    with results_tab:    
-        st.header("Model Performance & Metrics")
-
-        st.plotly_chart(plot_test_period_predictions(predictions, ticker), use_container_width=True)
-        st.caption("This chart displays model predictions for the test period so these prices can be clearly compared against the actual closing prices.")
-
-        st.write("")
-        st.write("**Model Metric Comparison**")
-        m1, m2, m3, m4 = st.columns(4)
-        with m1:
-            st.plotly_chart(plot_metric_bars(metrics_df, "RMSE"), use_container_width=True)
-        with m2:
-            st.plotly_chart(plot_metric_bars(metrics_df, "MAE"), use_container_width=True)
-        with m3:
-            st.plotly_chart(plot_metric_bars(metrics_df, "MAPE%"), use_container_width=True)
-        with m4:
-            st.plotly_chart(plot_metric_bars(metrics_df, "Directional Accuracy%"), use_container_width=True)
-            
-        st.dataframe(metrics_df.round(4))
-
-        error_metrics = ["RMSE", "MAE", "MAPE%"]
-
-        rank_df = metrics_df[error_metrics].rank(ascending=True)
-        rank_df["Average Error Rank"] = rank_df.mean(axis=1)
-
-        best_error_model = rank_df["Average Error Rank"].idxmin()
-        st.info(f"""Result summary: Based on the error-based metrics shown above, {best_error_model} had the strongest overall performance for this selected ticker and time period.
-        Directional accuracy should be interpreted separately because it measures the accuracy of price direction rather than the size of the prediction error.""")
-
-        with st.expander("**Metrics Explained**"):
-            st.markdown(
-                """
-                <u>RMSE</u>: Measures the average size of prediction errors, with larger errors penalized more heavily. 
+    with st.expander("Metrics and analysis explained"):
+        st.markdown(
+            """
+            - <u>RMSE</u>: Measures the average size of prediction errors, with larger errors penalized more heavily. 
                 Lower RMSE indicates that the model made fewer large mistakes.
-
-                <u>MAE</u>: Measures the average absolute difference between predicted and actual closing prices. 
+            - <u>MAE</u>: Measures the average absolute difference between predicted and actual closing prices. 
                 Lower MAE means the model's predictions were closer to the actual prices on average.
-
-                <u>MAPE</u>: Measures prediction error as a percentage of the actual closing price. This makes it easier to compare
-                 model performance across stocks with different price levels because the error is expressed relative to the stock price rather than in dollars.
-
-                <u>Directional Accuracy</u>: Measures how often the model correctly predicted whether the next closing price would move up or down. 
+            - <u>MAPE</u>: Measures prediction error as a percentage of the actual closing price. This makes it easier to compare
+                model performance across stocks with different price levels because the error is expressed relative to the stock price rather than in dollars.
+            - <u>Directional Accuracy</u>: Measures how often the model correctly predicted whether the next closing price would move up or down. 
                 Higher directional accuracy is better, but it should be interpreted alongside RMSE, MAE, and MAPE because a model can predict direction correctly while still being far from the actual price.
-                """,
-                unsafe_allow_html=True
-            )
-        
-        st.write("")
-        st.caption("Educational project only. yfinance data may be delayed, revised, or unavailable for some symbols. Results depend on the selected period and are not financial advice.")
+            - <u>Average Error Rank</u>: Averages each model's relative rank across RMSE, MAE, and MAPE.
+              It is a comparison summary for the selected ticker and period, not a universal model score.
+            """, unsafe_allow_html=True
+        )
 
-    with details_tab:
-        st.header("Model Inputs & Prediction Approach")
+    nav1, nav2 = st.columns(2)
+    with nav1:
+        st.button("Back to Model Setup",on_click=set_active_view, args=("Model Setup",), use_container_width=True)
+    with nav2:
+        st.button("View Model Details & Predictions →", on_click=set_active_view, args=("Model Details & Predictions",), type="primary", use_container_width=True,)
 
+    st.caption("Educational project only. Results depend on the selected period and are not financial advice.")
+
+def render_details_predictions(results: Dict) -> None:
+    """Render model design details and row-level predictions."""
+    predictions = results["predictions"]
+
+    st.title("Model Details & Prediction Table")
+    st.caption("Review how each model approaches the forecasting task and inspect its individual test-period predictions.")
+
+    detail_tabs = st.tabs(["Model Designs", "Prediction Table"])
+
+    with detail_tabs[0]:
+        st.subheader("Model Inputs & Prediction Approach")
         note_cols = st.columns(3)
+
         with note_cols[0]:
-            st.subheader("LSTM")
+            st.markdown("### LSTM")
             st.write(
                 """The LSTM model uses a 30-trading-day lookback window to predict the next closing price. 
                 For each day in the sequence, the model receives multiple daily features, including the 
@@ -837,12 +821,9 @@ def main():
                 treating each trading day independently. The model outputs a direct prediction of the next 
                 closing price."""
             )
-            if lstm_feature_cols:
-                st.write("**Sequence features:**")
-                st.write(", ".join(lstm_feature_cols))
 
         with note_cols[1]:
-            st.subheader("XGBoost")
+            st.markdown("### XGBoost")
             st.write(
                 """The XGBoost model uses engineered tabular features to predict the stock’s next-day return. 
                 Its inputs include lagged returns, moving averages, volatility measures, momentum indicators, 
@@ -851,12 +832,9 @@ def main():
                 Instead, each row represents one trading day with a set of explanatory features. After predicting 
                 the next-day return, the model converts that return into a predicted closing price."""
             )
-            if not xgb_importance_df.empty:
-                st.write("**Top feature importances:**")
-                st.dataframe(xgb_importance_df.head(10), use_container_width=True, hide_index=True)
 
         with note_cols[2]:
-            st.subheader("N-BEATS")
+            st.markdown("### N-BEATS")
             st.write(
                 """The N-BEATS model is used as a univariate time-series model, meaning it relies only on the stock’s 
                 historical closing prices. It takes the previous 30 closing prices as its input window and predicts 
@@ -866,13 +844,282 @@ def main():
                 closing-price history alone."""
             )
 
-        with st.expander("Prediction Table"):
-            display_predictions = predictions.copy()
-            display_predictions["Error"] = display_predictions["Predicted"] - display_predictions["Actual"]
-            display_predictions["Absolute_Error"] = display_predictions["Error"].abs()
-            st.dataframe(display_predictions.sort_values(["Date", "Model"]).round(4), hide_index = True, use_container_width=True)
+    with detail_tabs[1]:
+        st.subheader("Test-Period Predictions")
+        display_predictions = predictions.copy()
+        display_predictions["Error"] = (display_predictions["Predicted"] - display_predictions["Actual"])
+        display_predictions["Absolute Error"] = display_predictions["Error"].abs()
 
-        st.caption("Educational project only. yfinance data may be delayed, revised, or unavailable for some symbols. Results depend on the selected period and are not financial advice.")
+        selected_models = st.multiselect("Models to display", options=list(display_predictions["Model"].unique()), default=list(display_predictions["Model"].unique()))
+
+        filtered = display_predictions[
+            display_predictions["Model"].isin(selected_models)
+        ].sort_values(["Date", "Model"])
+
+        st.dataframe(filtered.round(4),hide_index=True, use_container_width=True)
+
+        st.download_button("Download prediction table as CSV", data=filtered.to_csv(index=False).encode("utf-8"), file_name=f"{results['ticker']}_model_predictions.csv", mime="text/csv")
+
+    nav1, nav2 = st.columns(2)
+    with nav1:
+        st.button("← View Results & Analysis", on_click=set_active_view, args=("Results & Analysis",),use_container_width=True,)
+    with nav2:
+        st.button("Back to Model Setup", on_click=set_active_view, args=("Model Setup",), use_container_width=True)
+
+    st.caption("Educational project only. yfinance data may be delayed, revised, or unavailable for some symbols.")
+
+def render_saved_setup_outputs(results: Dict) -> None:
+    """Restore the original setup-page outputs after the user visits another app view."""
+    stock_df = results["stock_df"]
+    company_profile = results["company_profile"]
+
+    st.divider()
+    render_company_profile(company_profile)
+    st.markdown("---")
+
+    st.header("Training Overview", divider="gray")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Ticker", results["ticker"])
+    c2.metric("Rows", f"{len(stock_df):,}")
+    c3.metric("Training Rows", f"{results['training_rows']:,}")
+    c4.metric("Test Rows", f"{results['test_rows']:,}")
+
+    st.plotly_chart(plot_candlestick_with_volume(stock_df, results["ticker"]), use_container_width=True)
+
+    with st.expander("Downloaded data preview"):
+        st.dataframe(stock_df.tail(10), hide_index=True, use_container_width=True)
+
+    st.divider()
+    st.header("Model Status")
+    for model_name in results["metrics_df"].index:
+        st.success(f"{model_name} complete")
+
+def main():
+    """
+    Design the UI to support user selection of a ticker and time frame, run the
+    three models, and preserve completed results across app views.
+    """
+    st.set_page_config(page_title="Financial Forecasting Model Comparison",layout="wide")
+
+    if "is_running" not in st.session_state:
+        st.session_state["is_running"] = False
+
+    if "start_training" not in st.session_state:
+        st.session_state["start_training"] = False
+
+    if "active_view" not in st.session_state:
+        st.session_state["active_view"] = "Model Setup"
+    if "model_results" not in st.session_state:
+        st.session_state["model_results"] = None
+
+    results_available = st.session_state["model_results"] is not None
+    available_views = ["Model Setup"]
+    if results_available:
+        available_views.extend(["Results & Analysis", "Model Details & Predictions"])
+
+    if st.session_state["active_view"] not in available_views:
+        st.session_state["active_view"] = "Model Setup"
+
+    st.sidebar.header("App Navigation")
+    active_view = st.sidebar.radio(
+        "Go to",
+        available_views,
+        index=available_views.index(st.session_state["active_view"]),
+        key="navigation_radio",
+    )
+    st.session_state["active_view"] = active_view
+
+    scroll_to_top_if_requested()
+
+    if active_view == "Results & Analysis" and results_available:
+        render_results_analysis(st.session_state["model_results"])
+        return
+
+    if active_view == "Model Details & Predictions" and results_available:
+        render_details_predictions(st.session_state["model_results"])
+        return
+
+    # --------------------------------------
+    # Model Setup and Training Page
+    # --------------------------------------
+    st.title("Financial Forecasting Model Comparison")
+    st.caption("Interactive demo comparing LSTM, XGBoost, and N-BEATS for daily stock prediction.")
+
+    st.markdown(
+        """<style>
+        details summary p {font-size: 1.2rem !important;}
+        </style>""",
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("**Project Overview**", expanded=True):
+        render_project_explanation()
+
+    current_year = datetime.now().year
+
+    controls_disabled = st.session_state["is_running"]
+    st.sidebar.markdown("---")
+    st.sidebar.header("Model Controls")
+    ticker_choice = st.sidebar.selectbox("Common Tickers", POPULAR_TICKERS,index=POPULAR_TICKERS.index("NVDA"),disabled=controls_disabled)
+    custom_ticker = st.sidebar.text_input("Or enter a custom ticker", value="", disabled=controls_disabled)
+    ticker = (normalize_ticker(custom_ticker)if custom_ticker.strip() else ticker_choice)
+
+    start_year = st.sidebar.number_input("Start year", min_value=current_year - 26, max_value=current_year - 3, value=current_year - 6, step=1, help="Use at least 3 years and no more than 10 inclusive calendar years after 2000.", disabled=controls_disabled)
+    end_year = st.sidebar.number_input("End year", max_value=current_year, value=current_year - 1, step=1, help="The end year is inclusive. The current year downloads through the latest available trading day.", disabled=controls_disabled)
+
+    st.sidebar.markdown("---")
+    st.sidebar.write(f"**Look-back Window:** {LOOKBACK} trading days")
+    st.sidebar.write(
+        f"**Train/test Split:** {int(TRAIN_FRACTION * 100)}% / "
+        f"{int((1 - TRAIN_FRACTION) * 100)}%"
+    )
+
+    st.sidebar.button("Run model comparison", type="primary", on_click=start_new_model_run, disabled=controls_disabled)
+
+    if st.session_state["is_running"] and not st.session_state["start_training"]:
+        st.session_state["start_training"] = True
+        st.rerun()
+
+    if results_available:
+        prior = st.session_state["model_results"]
+
+        st.success(
+            f"Completed results are available for **{prior['ticker']} "
+            f"({prior['start_year']}–{prior['end_year']})**."
+        )
+
+        link1, link2 = st.columns(2)
+
+        with link1:
+            st.button("View Results & Analysis →", on_click=set_active_view, args=("Results & Analysis",), type="primary", use_container_width=True)
+
+        with link2:
+            st.button("View Model Details & Predictions →", on_click=set_active_view, args=("Model Details & Predictions",), use_container_width=True)
+
+    if not st.session_state["start_training"]:
+        if results_available:
+            render_saved_setup_outputs(st.session_state["model_results"])
+        else:
+            st.info(
+                "Choose a ticker and date range in the sidebar, then click "
+                "**Run model comparison**. Results pages become available "
+                "after models complete."
+            )
+
+        return
+
+    st.divider()
+
+    try:
+        with st.spinner("Downloading market data..."):
+            full_data = download_market_data(
+                ticker,
+                int(start_year),
+                int(end_year),
+            )
+            stock_df = get_stock_frame(full_data, ticker)
+            validate_inputs(stock_df, int(start_year), int(end_year))
+            company_profile = get_company_profile(ticker)
+            render_company_profile(company_profile)
+    except Exception as exc:
+        st.session_state["is_running"] = False
+        st.session_state["start_training"] = False
+        st.error(str(exc))
+        return
+
+    st.markdown("---")
+    training_set = int(np.ceil(len(stock_df) * TRAIN_FRACTION))
+
+    st.header("Training Overview", divider="gray")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Ticker", ticker)
+    c2.metric("Rows", f"{len(stock_df):,}")
+    c3.metric("Training Rows", f"{training_set:,}")
+    c4.metric("Test Rows", f"{len(stock_df) - training_set:,}")
+
+    st.plotly_chart(plot_candlestick_with_volume(stock_df, ticker), use_container_width=True,)
+
+    with st.expander("Downloaded data preview"):
+        st.dataframe(stock_df.tail(10), hide_index=True, use_container_width=True,)
+
+    prediction_frames = []
+    metrics_records = {}
+    xgb_importance_df = pd.DataFrame()
+    lstm_feature_cols = []
+
+    st.divider()
+    st.header("Model Status")
+    results_prompt = st.empty()
+
+    for model_name in MODEL_OPTIONS:
+        try:
+            with st.spinner(f"Training and evaluating {model_name}..."):
+                if model_name == "LSTM":
+                    pred_df, metrics, lstm_feature_cols = run_lstm(stock_df, full_data, training_set, 30)
+                elif model_name == "XGBoost":
+                    pred_df, metrics, xgb_importance_df = run_xgboost(stock_df,full_data,training_set)
+                elif model_name == "N-BEATS":
+                    pred_df, metrics = run_nbeats(stock_df,training_set, 50)
+                else:
+                    continue
+            prediction_frames.append(pred_df)
+            metrics_records[model_name] = metrics
+            st.success(f"{model_name} complete")
+        except Exception as exc:
+            st.warning(f"{model_name} could not run: {exc}")
+
+    if not prediction_frames:
+        st.session_state["is_running"] = False
+        st.session_state["start_training"] = False
+        st.error("No model results were produced. Check package installation and input settings.")
+        return
+
+    predictions = pd.concat(prediction_frames, ignore_index=True)
+    metrics_df = pd.DataFrame(metrics_records).T
+
+    st.session_state["model_results"] = {
+        "ticker": ticker,
+        "start_year": int(start_year),
+        "end_year": int(end_year),
+        "predictions": predictions,
+        "metrics_df": metrics_df,
+        "stock_df": stock_df,
+        "company_profile": company_profile,
+        "training_rows": training_set,
+        "test_rows": len(stock_df) - training_set,
+    }
+
+    st.session_state["is_running"] = False
+    st.session_state["start_training"] = False
+    
+    with results_prompt.container():
+        st.success(
+            "Model comparison complete. Choose a results page to continue."
+        )
+
+        result_link, detail_link = st.columns(2)
+
+        with result_link:
+            st.button(
+                "View Results & Analysis →",
+                on_click=set_active_view,
+                args=("Results & Analysis",),
+                type="primary",
+                use_container_width=True,
+            )
+
+        with detail_link:
+            st.button(
+                "View Model Details & Predictions →",
+                on_click=set_active_view,
+                args=("Model Details & Predictions",),
+                use_container_width=True,
+            )
+
+        st.caption(
+            "The completed results remain available while this Streamlit "
+            "session is active. Running the comparison again replaces them."
+        )
 
 if __name__ == "__main__":
     main()
