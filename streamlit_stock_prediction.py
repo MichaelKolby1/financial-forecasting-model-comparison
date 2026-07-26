@@ -667,31 +667,40 @@ def render_company_profile(profile: Dict[str, str]):
             st.link_button("Company Website", profile["website"])
 
 def set_active_view(view_name: str) -> None:
-    """Update the visible app section without rerunning the models."""
-    st.session_state["active_view"] = view_name
+    """Navigate to another app view and scroll to the top."""
+    st.session_state["navigation_radio"] = view_name
     st.session_state["scroll_to_top"] = True
 
 def scroll_to_top_if_requested() -> None:
-    """Scroll the browser to the top after app navigation."""
-    if st.session_state.get("scroll_to_top", False):
-        st.html(
-            """
-            <script>
-                window.parent.scrollTo({
-                    top: 0,
-                    behavior: "instant"
+    """Scroll Streamlit's main container after the destination view is rendered."""
+    if not st.session_state.get("scroll_to_top", False):
+        return
+
+    st.html(
+        """
+        <script>
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    const main = document.querySelector(
+                        'section[data-testid="stMain"]'
+                    );
+
+                    if (main) {
+                        main.scrollTop = 0;
+                    }
                 });
-            </script>
-            """,
-            unsafe_allow_javascript=True,
-        )
-        st.session_state["scroll_to_top"] = False
+            });
+        </script>
+        """,
+        unsafe_allow_javascript=True,
+    )
+
+    st.session_state["scroll_to_top"] = False
 
 def start_new_model_run():
     st.session_state["is_running"] = True
     st.session_state["start_training"] = False
     st.session_state["model_results"] = None
-    st.session_state["active_view"] = "Model Setup"
 
 def build_comparison_table(metrics_df: pd.DataFrame) -> pd.DataFrame:
     """Add metric-specific ranks and a combined error rank to the model metrics."""
@@ -738,27 +747,27 @@ def render_results_analysis(results: Dict) -> None:
 
     st.plotly_chart(
         plot_test_period_predictions(predictions, ticker),
-        use_container_width=True,
+        width='stretch',
     )
     st.caption("The chart compares each model's test-period predictions with the actual closing price.")
 
     st.subheader("Metric Comparison")
     m1, m2, m3, m4 = st.columns(4)
     with m1:
-        st.plotly_chart(plot_metric_bars(metrics_df, "RMSE"), use_container_width=True)
+        st.plotly_chart(plot_metric_bars(metrics_df, "RMSE"), width='stretch')
     with m2:
-        st.plotly_chart(plot_metric_bars(metrics_df, "MAE"), use_container_width=True)
+        st.plotly_chart(plot_metric_bars(metrics_df, "MAE"), width='stretch')
     with m3:
-        st.plotly_chart(plot_metric_bars(metrics_df, "MAPE%"), use_container_width=True)
+        st.plotly_chart(plot_metric_bars(metrics_df, "MAPE%"), width='stretch')
     with m4:
         st.plotly_chart(
             plot_metric_bars(metrics_df, "Directional Accuracy%"),
-            use_container_width=True,
+            width='stretch',
         )
 
     st.dataframe(
         comparison_df.round(4),
-        use_container_width=True,
+        width='stretch',
     )
 
     st.subheader("Model Interpretations")
@@ -791,9 +800,9 @@ def render_results_analysis(results: Dict) -> None:
 
     nav1, nav2 = st.columns(2)
     with nav1:
-        st.button("Back to Model Setup",on_click=set_active_view, args=("Model Setup",), use_container_width=True)
+        st.button("Back to Model Setup",on_click=set_active_view, args=("Model Setup",), width='stretch')
     with nav2:
-        st.button("View Model Details & Predictions →", on_click=set_active_view, args=("Model Details & Predictions",), type="primary", use_container_width=True,)
+        st.button("View Model Details & Predictions →", on_click=set_active_view, args=("Model Details & Predictions",), type="primary", width='stretch')
 
     st.caption("Educational project only. Results depend on the selected period and are not financial advice.")
 
@@ -856,15 +865,15 @@ def render_details_predictions(results: Dict) -> None:
             display_predictions["Model"].isin(selected_models)
         ].sort_values(["Date", "Model"])
 
-        st.dataframe(filtered.round(4),hide_index=True, use_container_width=True)
+        st.dataframe(filtered.round(4),hide_index=True, width='stretch')
 
         st.download_button("Download prediction table as CSV", data=filtered.to_csv(index=False).encode("utf-8"), file_name=f"{results['ticker']}_model_predictions.csv", mime="text/csv")
 
     nav1, nav2 = st.columns(2)
     with nav1:
-        st.button("← View Results & Analysis", on_click=set_active_view, args=("Results & Analysis",),use_container_width=True,)
+        st.button("← View Results & Analysis", on_click=set_active_view, args=("Results & Analysis",),width='stretch',)
     with nav2:
-        st.button("Back to Model Setup", on_click=set_active_view, args=("Model Setup",), use_container_width=True)
+        st.button("Back to Model Setup", on_click=set_active_view, args=("Model Setup",), width='stretch')
 
     st.caption("Educational project only. yfinance data may be delayed, revised, or unavailable for some symbols.")
 
@@ -884,10 +893,10 @@ def render_saved_setup_outputs(results: Dict) -> None:
     c3.metric("Training Rows", f"{results['training_rows']:,}")
     c4.metric("Test Rows", f"{results['test_rows']:,}")
 
-    st.plotly_chart(plot_candlestick_with_volume(stock_df, results["ticker"]), use_container_width=True)
+    st.plotly_chart(plot_candlestick_with_volume(stock_df, results["ticker"]), width='stretch')
 
     with st.expander("Downloaded data preview"):
-        st.dataframe(stock_df.tail(10), hide_index=True, use_container_width=True)
+        st.dataframe(stock_df.tail(10), hide_index=True, width='stretch')
 
     st.divider()
     st.header("Model Status")
@@ -907,8 +916,6 @@ def main():
     if "start_training" not in st.session_state:
         st.session_state["start_training"] = False
 
-    if "active_view" not in st.session_state:
-        st.session_state["active_view"] = "Model Setup"
     if "model_results" not in st.session_state:
         st.session_state["model_results"] = None
 
@@ -917,26 +924,23 @@ def main():
     if results_available:
         available_views.extend(["Results & Analysis", "Model Details & Predictions"])
 
-    if st.session_state["active_view"] not in available_views:
-        st.session_state["active_view"] = "Model Setup"
-
+    if st.session_state.get("navigation_radio") not in available_views:
+        st.session_state["navigation_radio"] = "Model Setup"
+        
     st.sidebar.header("App Navigation")
     active_view = st.sidebar.radio(
         "Go to",
         available_views,
-        index=available_views.index(st.session_state["active_view"]),
-        key="navigation_radio",
-    )
-    st.session_state["active_view"] = active_view
-
-    scroll_to_top_if_requested()
+        key="navigation_radio")
 
     if active_view == "Results & Analysis" and results_available:
         render_results_analysis(st.session_state["model_results"])
+        scroll_to_top_if_requested()
         return
 
     if active_view == "Model Details & Predictions" and results_available:
         render_details_predictions(st.session_state["model_results"])
+        scroll_to_top_if_requested()
         return
 
     # --------------------------------------
@@ -991,10 +995,10 @@ def main():
         link1, link2 = st.columns(2)
 
         with link1:
-            st.button("View Results & Analysis →", on_click=set_active_view, args=("Results & Analysis",), type="primary", use_container_width=True)
+            st.button("View Results & Analysis →", on_click=set_active_view, args=("Results & Analysis",), type="primary", width='stretch')
 
         with link2:
-            st.button("View Model Details & Predictions →", on_click=set_active_view, args=("Model Details & Predictions",), use_container_width=True)
+            st.button("View Model Details & Predictions →", on_click=set_active_view, args=("Model Details & Predictions",), width='stretch')
 
     if not st.session_state["start_training"]:
         if results_available:
@@ -1037,10 +1041,10 @@ def main():
     c3.metric("Training Rows", f"{training_set:,}")
     c4.metric("Test Rows", f"{len(stock_df) - training_set:,}")
 
-    st.plotly_chart(plot_candlestick_with_volume(stock_df, ticker), use_container_width=True,)
+    st.plotly_chart(plot_candlestick_with_volume(stock_df, ticker), width='stretch')
 
     with st.expander("Downloaded data preview"):
-        st.dataframe(stock_df.tail(10), hide_index=True, use_container_width=True,)
+        st.dataframe(stock_df.tail(10), hide_index=True, width='stretch')
 
     prediction_frames = []
     metrics_records = {}
@@ -1105,7 +1109,7 @@ def main():
                 on_click=set_active_view,
                 args=("Results & Analysis",),
                 type="primary",
-                use_container_width=True,
+                width='stretch'
             )
 
         with detail_link:
@@ -1113,7 +1117,7 @@ def main():
                 "View Model Details & Predictions →",
                 on_click=set_active_view,
                 args=("Model Details & Predictions",),
-                use_container_width=True,
+                width='stretch',
             )
 
         st.caption(
