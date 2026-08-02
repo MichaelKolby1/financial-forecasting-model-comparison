@@ -10,11 +10,11 @@ The project includes a Jupyter notebook for the full modeling workflow and a Str
 
 ## App Preview
 
-![Live App Overview](app_overview.png)
+![Live App Overview](images/app_overview.png)
 
-![Model Performance Metrics](sample_model_results.png)
+![Model Performance Metrics](images/sample_model_results.png)
 
-![Model Comparison](sample_model_comparison.png)
+![Model Comparison](images/sample_model_comparison.png)
 
 ## Project Overview
 
