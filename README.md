@@ -6,6 +6,16 @@ An educational project comparing three models for daily stock prediction: **LSTM
 
 The project includes a Jupyter notebook for the full modeling workflow and a Streamlit app for an interactive demo.
 
+> **Note:** Streamlit may put the app to sleep after a period of inactivity. If prompted, click **Yes, get this app back up!** and allow a moment for the app to restart.
+
+## App Preview
+
+![Live App Overview](app-overview.png)
+
+![Model Performance Metrics](sample_model_results.png)
+
+![Model Comparison](sample_model_comparison.png)
+
 ## Project Overview
 
 This project compares different machine learning and deep learning approaches for financial forecasting. The goal is not to create a trading tool, but to evaluate how different model types perform on the same stock prediction task.
