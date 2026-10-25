@@ -117,6 +117,37 @@ def make_prediction_frame(model_name: str, dates: np.ndarray, actual: np.ndarray
     )
 
 
+def get_market_features(full_data: pd.DataFrame) -> pd.DataFrame:
+    """Build market benchmark features while tolerating missing Yahoo benchmark data.
+
+    Some Yahoo responses omit SPY/QQQ data for a date window even when the stock data loads.
+    The XGBoost model should gracefully use NaN values in those fields instead of crashing.
+    """
+    market_df = full_data[full_data["Ticker"].isin(["SPY", "QQQ"])][["Date", "Ticker", "Close"]].copy()
+    if market_df.empty:
+        return pd.DataFrame(
+            {
+                "Date": pd.Series(dtype="datetime64[ns]"),
+                "SPY_Return_1d": pd.Series(dtype=float),
+                "QQQ_Return_1d": pd.Series(dtype=float),
+                "SPY_Return_5d": pd.Series(dtype=float),
+                "QQQ_Return_5d": pd.Series(dtype=float),
+            }
+        )
+
+    market_df = market_df.pivot(index="Date", columns="Ticker", values="Close").reset_index()
+    for ticker in ["SPY", "QQQ"]:
+        if ticker not in market_df.columns:
+            market_df[ticker] = np.nan
+
+    market_df["SPY_Return_1d"] = safe_pct_change(market_df["SPY"])
+    market_df["QQQ_Return_1d"] = safe_pct_change(market_df["QQQ"])
+    market_df["SPY_Return_5d"] = safe_pct_change(market_df["SPY"], periods=5)
+    market_df["QQQ_Return_5d"] = safe_pct_change(market_df["QQQ"], periods=5)
+
+    return market_df[["Date", "SPY_Return_1d", "QQQ_Return_1d", "SPY_Return_5d", "QQQ_Return_5d"]].copy()
+
+
 # -----------------------------
 # DATA DOWNLOAD & PREPARATION
 # -----------------------------
@@ -152,7 +183,6 @@ def download_market_data(ticker: str, start_year: int, end_year: int) -> pd.Data
         if "level_1" in data.columns:
             data = data.rename(columns={"level_1": "Ticker"})
         if "Ticker" not in data.columns:
-            # Some yfinance versions name the stacked column differently.
             non_price_cols = [c for c in data.columns if c not in ["Date", "Open", "High", "Low", "Close", "Volume"]]
             if non_price_cols:
                 data = data.rename(columns={non_price_cols[0]: "Ticker"})
@@ -164,7 +194,6 @@ def download_market_data(ticker: str, start_year: int, end_year: int) -> pd.Data
     data["Date"] = pd.to_datetime(data["Date"])
     data = data.dropna(subset=["Close"]).sort_values(["Ticker", "Date"]).reset_index(drop=True)
 
-    # Keep only the columns used by the demo.
     expected_cols = ["Date", "Ticker", "Open", "High", "Low", "Close", "Volume"]
     available_cols = [col for col in expected_cols if col in data.columns]
     return data[available_cols].copy()
@@ -173,17 +202,24 @@ def download_market_data(ticker: str, start_year: int, end_year: int) -> pd.Data
 def get_company_profile(ticker: str) -> Dict[str, str]:
     """
     Retrieve basic company information from yfinance for the user's selected ticker.
+
+    Yahoo Finance metadata can be blank or rate-limited, so we degrade gracefully by
+    using a generic fallback instead of leaving the profile completely empty.
     """
+    info: Dict[str, object] = {}
     try:
-        info = yf.Ticker(ticker).get_info()
+        quote = yf.Ticker(ticker)
+        info = quote.get_info() or getattr(quote, "info", {}) or {}
     except Exception:
         info = {}
 
     company_name = info.get("longName") or info.get("shortName") or ticker
-    summary = info.get("longBusinessSummary") or "Company summary is unavailable for this ticker."
+    summary = info.get("longBusinessSummary") or (
+        "Company summary is unavailable for this ticker. Yahoo Finance metadata could not be fetched."
+    )
     sector = info.get("sector", "")
     industry = info.get("industry", "")
-    website = info.get("website", "")
+    website = info.get("website") or f"https://finance.yahoo.com/quote/{ticker}"
 
     return {
         "ticker": ticker,
@@ -240,7 +276,7 @@ def prepare_lstm_data(stock_df: pd.DataFrame, full_data: pd.DataFrame,training_s
     lstm_df["SMA_10"] = lstm_df["Close"].rolling(10).mean()
     lstm_df["Close_to_SMA_10"] = (lstm_df["Close"] / lstm_df["SMA_10"]) - 1
 
-    spy_df = full_data[full_data["Ticker"] == "SPY"][["Date", "Close"]].copy()
+    spy_df = full_data[full_data["Ticker"] == "SPY"][['Date', 'Close']].copy()
     spy_df = spy_df.sort_values("Date").reset_index(drop=True)
     spy_df["SPY_Return_1d"] = safe_pct_change(spy_df["Close"])
     spy_df = spy_df[["Date", "SPY_Return_1d"]]
@@ -385,15 +421,8 @@ def prepare_xgboost_data(stock_df: pd.DataFrame, full_data: pd.DataFrame, traini
     xgb_df["DayOfWeek"] = pd.to_datetime(xgb_df["Date"]).dt.dayofweek
     xgb_df["Month"] = pd.to_datetime(xgb_df["Date"]).dt.month
 
-    market_df = full_data[full_data["Ticker"].isin(["SPY", "QQQ"])][["Date", "Ticker", "Close"]].copy()
-    market_df = market_df.pivot(index="Date", columns="Ticker", values="Close").reset_index()
-    market_df["SPY_Return_1d"] = safe_pct_change(market_df["SPY"])
-    market_df["QQQ_Return_1d"] = safe_pct_change(market_df["QQQ"])
-    market_df["SPY_Return_5d"] = safe_pct_change(market_df["SPY"], periods=5)
-    market_df["QQQ_Return_5d"] = safe_pct_change(market_df["QQQ"], periods=5)
-
-    market_features = ["Date", "SPY_Return_1d", "QQQ_Return_1d", "SPY_Return_5d", "QQQ_Return_5d"]
-    xgb_df = xgb_df.merge(market_df[market_features], on="Date", how="left")
+    market_df = get_market_features(full_data)
+    xgb_df = xgb_df.merge(market_df, on="Date", how="left")
 
     xgb_df["Target_Close"] = xgb_df["Close"].shift(-1)
     xgb_df["Target_Return_1d"] = (xgb_df["Target_Close"] / xgb_df["Close"]) - 1
@@ -422,9 +451,12 @@ def prepare_xgboost_data(stock_df: pd.DataFrame, full_data: pd.DataFrame, traini
         feature_cols += [f"Close_to_SMA_{window}", f"Volatility_{window}", f"Momentum_{window}"]
     feature_cols += ["Volume_to_SMA_5", "Volume_to_SMA_20"]
 
-    xgb_df = xgb_df.replace([np.inf, -np.inf], np.nan).dropna().copy()
+    xgb_df = xgb_df.replace([np.inf, -np.inf], np.nan).dropna(subset=["Target_Return_1d"]).copy()
     train_df = xgb_df[xgb_df["Target_Index"] < training_set].copy()
     test_df = xgb_df[xgb_df["Target_Index"] >= training_set].copy()
+    if not train_df.empty and not test_df.empty:
+        train_df = train_df.dropna(subset=feature_cols)
+        test_df = test_df.dropna(subset=feature_cols)
     return train_df, test_df, feature_cols
 
 def run_xgboost(stock_df: pd.DataFrame, full_data: pd.DataFrame, training_set: int) -> Tuple[pd.DataFrame, Dict[str, float], pd.DataFrame]:
@@ -598,7 +630,7 @@ def plot_test_period_predictions(predictions: pd.DataFrame, ticker: str) -> go.F
 
         fig.add_trace(go.Scatter(x=model_df["Date"], y=model_df["Predicted"], mode="lines", name=f"{model_name} predicted", line=dict(dash="dash", width=2)))
 
-    fig.update_layout(title=f"{ticker}: Model Predictions During Test Period", xaxis_title="Date", yaxis_title="Close Price (USD)", hovermode="x unified", template="plotly_white", legend_title="Series", height=600, margin=dict(l=40, r=40, t=70, b=40))
+    fig.update_layout(title=f"{ticker}: Model Predictions During Test Period", xaxis_title="Date", yaxis_title="Close Price (USD)", hovermode="x unified", template="plotly_white", legend_title="Series", legend=dict(yanchor="top", y=1.02, xanchor="right", x=1.0))
 
     return fig
 
@@ -666,6 +698,7 @@ def render_company_profile(profile: Dict[str, str]):
         with link_cols[2]:
             st.link_button("Company Website", profile["website"])
 
+
 def main():
     """
     Design the UI to support user selection of a ticker and time frame for which the 3 models are run and to evaluate and compare model performances.
@@ -693,8 +726,8 @@ def main():
     custom_ticker = st.sidebar.text_input("Or enter a custom ticker", value="")
     ticker = normalize_ticker(custom_ticker) if custom_ticker.strip() else ticker_choice
 
-    start_year = st.sidebar.number_input("Start year", min_value=current_year - 26, max_value=current_year - 3, value=current_year - 6, step=1, help="Note: Use at least 3 years and no more than 10 years of data after 2000.")
-    end_year = st.sidebar.number_input("End year", max_value=current_year, value=current_year-1, step=1, help="Note: End year is treated as inclusive. If it is the current year, data is downloaded through the latest available trading day.")
+    start_year = st.sidebar.number_input("Start year", min_value=current_year - 26, max_value=current_year - 3, value=current_year - 6, step=1, help="Note: Use at least 3 years and no more than 10 years of data. Both the start and end years are included.")
+    end_year = st.sidebar.number_input("End year", max_value=current_year, value=current_year-1, step=1, help="Note: End year is treated as inclusive. If it is the current year, data is downloaded through the end of the year, or through the latest available date.")
 
     st.sidebar.markdown("---")
     st.sidebar.write(f"**Look-back Window:** {LOOKBACK} trading days")
@@ -814,7 +847,7 @@ def main():
                  model performance across stocks with different price levels because the error is expressed relative to the stock price rather than in dollars.
 
                 <u>Directional Accuracy</u>: Measures how often the model correctly predicted whether the next closing price would move up or down. 
-                Higher directional accuracy is better, but it should be interpreted alongside RMSE, MAE, and MAPE because a model can predict direction correctly while still being far from the actual price.
+                Higher directional accuracy is better, but it should be interpreted alongside RMSE, MAE, and MAPE because a model can predict direction correctly while still being far from the actual closing price.
                 """,
                 unsafe_allow_html=True
             )
